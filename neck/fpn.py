@@ -10,7 +10,7 @@ class FPN(nn.Module):
         super(FPN, self).__init__()
 
         self.feature_inchannels = feature_inchannels
-        self.upsample = F.interpolate(scale_factor=2, mode='bilinear') #上采样
+        #self.upsample = F.interpolate(scale_factor=2, mode='bilinear') #上采样
         self.conv3x3_1 = conv3x3(feature_inchannels[3], 256)  #3x3卷积用于消除上采样带来的混叠效应
         self.conv3x3_2 = conv3x3(feature_inchannels[2], 256)
         self.conv3x3_3 = conv3x3(feature_inchannels[1], 256)
@@ -24,12 +24,17 @@ class FPN(nn.Module):
         c5, c4, c3, c2 = input
         p6 = self.max_pool(c5)
         p5 = self.conv3x3_1(c5)
-        p4 = self.conv3x3_2(self.upsample(c5) + self.conv1x1_1(c4))
-        p3 = self.conv3x3_3(self.upsample(c4) + self.conv1x1_2(c3))
-        p2 = self.conv3x3_4(self.upsample(c3) + self.conv1x1_3(c2))
+        p4 = self.conv3x3_2(F.interpolate(c5, scale_factor=2, mode='bilinear') + self.conv1x1_1(c4))
+        p3 = self.conv3x3_3(F.interpolate(c4, scale_factor=2, mode='bilinear') + self.conv1x1_2(c3))
+        p2 = self.conv3x3_4(F.interpolate(c3, scale_factor=2, mode='bilinear') + self.conv1x1_3(c2))
         feature_pyramid = [p2, p3, p4, p5, p6]
 
         return feature_pyramid
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
 
 
 

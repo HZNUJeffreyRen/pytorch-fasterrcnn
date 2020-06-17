@@ -24,6 +24,7 @@ def calculate_IOU (target_boxes, gt_boxes):  #gt_boxes[num_obj,4] targer_boxes[w
 
 def labels_generate (gt_boxes, target_boxes, overlaps_pos, overlaps_neg, im_width, im_height):
     total_targets = target_boxes.shape[0]
+    # 筛选出在图像内部的锚框
     targets_inside = np.where((target_boxes[:,0]>0)&\
                               (target_boxes[:,2]<im_width)&\
                               (target_boxes[:,1]>0)&\
