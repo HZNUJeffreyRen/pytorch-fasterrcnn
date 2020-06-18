@@ -1,40 +1,116 @@
 import torch
 import torch.nn as nn
-import numpy as np
-from layer import conv3x3
-from anchor.anchor_gennerate import gennerate_all_anchors
-from anchor.anchor_label import anchor_labels_process
+import torch.nn.functional as F
+from torch.autograd import Variable
+from rpn.anchor_target_layer import _AnchorTargetLayer
 import config as cfg
 
-
 class RPN(nn.Module):
-
-    def __init__(self, stride, inchannels=cfg.rpn_inchannels, feature_channels=cfg.rpn_featurechannels,
-                 anchor_scales=cfg.anchor_scales, anchor_ratios=cfg.anchor_ratios):
+    def __init__(self, feat_stride, is_training):
         super(RPN, self).__init__()
-        self.inchannels = inchannels
-        self.feature_channels = feature_channels
-        self.stride = stride
-        self.anchor_scales = anchor_scales
-        self.anchor_ratios = anchor_ratios
-        self.anchor_num = len(self.anchor_scales) * len(self.anchor_ratios)
 
-        self.rpn_conv = conv3x3(self.inchannels, self.feature_channels)
-        self.rpn_cls = conv3x3(self.feature_channels, self.anchor_num * 2)
-        self.rpn_reg = conv3x3(self.feature_channels, self.anchor_num * 4)
-        self.relu = nn.ReLU(inplace=True)
+        self.is_training = is_training
+        self.anchor_scales = cfg.anchor_scales
+        self.anchor_ratios = cfg.anchor_ratios
+        self.feat_stride = feat_stride
+        self.inchannels = cfg.rpn_inchannels
+        self.feat_channels = cfg.rpn_featurechannels
+
+        # define the convrelu layers processing input feature map
+        self.RPN_Conv = nn.Conv2d(self.inchannels, self.feat_channels, 3, 1, 1, bias=True)
+        self.nc_score_out = len(self.anchor_scales) * len(self.anchor_ratios) * 2
+        self.RPN_cls_score = nn.Conv2d(self.feat_channels, self.nc_score_out, 1, 1, 0)
+
+        # define anchor box offset prediction layer
+        self.nc_bbox_out = len(self.anchor_scales) * len(self.anchor_ratios) * 4
+        self.RPN_bbox_pred = nn.Conv2d(self.feat_channels, self.nc_bbox_out, 1, 1, 0)
+
+        # define proposal layer
+        #self.RPN_proposal = _ProposalLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
+
+        # define anchor target layer
+        self.RPN_anchor_target = _AnchorTargetLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
+
+        self.rpn_loss_cls = 0
+        self.rpn_loss_box = 0
 
 
-    def forward(self, input):
-       feature = self.rpn_conv(input)
-       feature = self.relu(feature)
+    @staticmethod
+    def reshape(x, d):
+        input_shape = x.size()
+        x = x.view(
+            input_shape[0],
+            int(d),
+            int(float(input_shape[1] * input_shape[2]) / float(d)),
+            input_shape[3]
+        )
+        return x
 
-       rpn_cls_score = self.rpn_cls(feature)
-       rpn_cls_score = self.relu(rpn_cls_score)
-       rpn_bbox_pred = self.rpn_reg(feature)
-       rpn_bbox_pred = self.relu(rpn_bbox_pred)
 
-       return rpn_cls_score, rpn_bbox_pred
+    def forward(self, base_feat, im_width, im_height, gt_boxes):
+        batch_size = base_feat.size(0)
+
+        # return feature map after convrelu layer
+        rpn_conv1 = F.relu(self.RPN_Conv(base_feat), inplace=True)
+        # get rpn classification score
+        rpn_cls_score = self.RPN_cls_score(rpn_conv1)
+
+        rpn_cls_score_reshape = self.reshape(rpn_cls_score, 2)
+        rpn_cls_prob_reshape = F.softmax(rpn_cls_score_reshape, 1)
+        rpn_cls_prob = self.reshape(rpn_cls_prob_reshape, self.nc_score_out)
+
+        # get rpn offsets to the anchor boxes
+        rpn_bbox_pred = self.RPN_bbox_pred(rpn_conv1)
+
+        #rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data,
+        #                         im_width, im_height, self.is_training))
+        self.rpn_loss_cls = 0
+        self.rpn_loss_box = 0
+
+        if self.is_training:
+            assert gt_boxes is not None
+
+            rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_width, im_height))
+
+            # compute classification loss
+            rpn_cls_score = rpn_cls_score_reshape.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2)
+            rpn_label = rpn_data[0].view(batch_size, -1)
+
+            rpn_keep = Variable(rpn_label.view(-1).ne(-1).nonzero().view(-1))
+            rpn_cls_score = torch.index_select(rpn_cls_score.view(-1, 2), 0, rpn_keep)
+            rpn_label = torch.index_select(rpn_label.view(-1), 0, rpn_keep.data)
+            rpn_label = Variable(rpn_label.long())
+            self.rpn_loss_cls = F.cross_entropy(rpn_cls_score, rpn_label)
+            #fg_cnt = torch.sum(rpn_label.data.ne(0))
+
+            rpn_bbox_targets, rpn_bbox_inside_weights, rpn_bbox_outside_weights = rpn_data[1:]
+
+            rpn_bbox_inside_weights = Variable(rpn_bbox_inside_weights)
+            rpn_bbox_outside_weights = Variable(rpn_bbox_outside_weights)
+            rpn_bbox_targets = Variable(rpn_bbox_targets)
+
+            self.rpn_loss_box = self._smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_inside_weights,
+                                                            rpn_bbox_outside_weights, sigma=3, dim=[1,2,3])
+
+        # return rois, self.rpn_loss_cls, self.rpn_loss_box
+        return self.rpn_loss_cls, self.rpn_loss_box
+
+
+    def _smooth_l1_loss(self, bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_weights, sigma=1.0, dim=[1]):
+        sigma_2 = sigma ** 2
+        box_diff = bbox_pred - bbox_targets
+        in_box_diff = bbox_inside_weights * box_diff
+        abs_in_box_diff = torch.abs(in_box_diff)
+        smoothL1_sign = (abs_in_box_diff < 1. / sigma_2).detach().float()
+        in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.) * smoothL1_sign \
+                      + (abs_in_box_diff - (0.5 / sigma_2)) * (1. - smoothL1_sign)
+        out_loss_box = bbox_outside_weights * in_loss_box
+        loss_box = out_loss_box
+        for i in sorted(dim, reverse=True):
+            loss_box = loss_box.sum(i)
+        loss_box = loss_box.mean()
+
+        return loss_box
 
 
     def init_weights(self):
@@ -43,96 +119,7 @@ class RPN(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
 
 
-    def build_loss(self, rpn_cls_score, rpn_bbox_pred, gt_boxes, image_width, image_height, sigma=3.0):
 
-        all_anchors = gennerate_all_anchors(image_width, image_height, self.stride)
-        anchor_labels, anchor_objs = anchor_labels_process(gt_boxes, all_anchors, image_width, image_height)
-        useful_index = np.where(anchor_labels > 0)  #标签为1的锚点框是要计算回归损失的
-        useful_anchor_obj = anchor_objs[useful_index]
-
-        rpn_cls_score_resh = torch.squeeze(rpn_cls_score)
-        rpn_cls_score_resh = torch.reshape(rpn_cls_score_resh, [-1, 2 * self.anchor_num])
-        rpn_cls_score_resh = torch.reshape(rpn_cls_score_resh, [-1, 2])
-        rpn_bbox_pred_resh = torch.squeeze(rpn_bbox_pred)
-        rpn_bbox_pred_resh = torch.reshape(rpn_bbox_pred_resh, [-1, 4 * self.anchor_num])
-        rpn_bbox_pred_resh = torch.reshape(rpn_bbox_pred_resh, [-1, 4])
-
-        #cls loss
-        anchor_labels = torch.from_numpy(anchor_labels).cuda()
-        anchor_labels = anchor_labels.int()
-        rpn_cls_loss = nn.CrossEntropyLoss(rpn_cls_score_resh, anchor_labels, ignore_index=-1)  #标签为-1的anchor不计入分类损失中
-
-        #回归损失
-        fg_anchors = all_anchors[useful_index]  #筛选出前景的锚点框
-        target_bbox = gt_boxes[useful_anchor_obj]     #得到每个锚点框的
-        fg_anchors = torch.from_numpy(fg_anchors).cuda()
-        fg_anchors = fg_anchors.float()
-        target_bbox = torch.from_numpy(target_bbox).cuda()
-        target_bbox = target_bbox.float()
-
-        #计算回归的目标
-        anchor_x1 = fg_anchors[:, 0]
-        anchor_y1 = fg_anchors[:, 1]
-        anchor_x2 = fg_anchors[:, 2]
-        anchor_y2 = fg_anchors[:, 3]
-
-        #转换成ccwh的形式
-        re_anchor0 = (anchor_x1 + anchor_x2) / 2.0  #中心点
-        re_anchor1 = (anchor_y1 + anchor_y2) / 2.0
-        re_anchor2 = anchor_x2 - anchor_x1  #w\h
-        re_anchor3 = anchor_y2 - anchor_y1
-
-        target_bbox_x1 = target_bbox[:, 0]
-        target_bbox_y1 = target_bbox[:, 1]
-        target_bbox_x2 = target_bbox[:, 2]
-        target_bbox_y2 = target_bbox[:, 3]
-
-        re_target0 = (target_bbox_x1 + target_bbox_x2) / 2.0
-        re_target1 = (target_bbox_y1 + target_bbox_y2) / 2.0
-        re_target2 = target_bbox_x2 - target_bbox_x1
-        re_target3 = target_bbox_y2 - target_bbox_y1
-
-        bbox_ground_truth_0 = (re_target0 - re_anchor0) / re_anchor2
-        bbox_ground_truth_1 = (re_target1 - re_anchor1) / re_anchor3
-        bbox_ground_truth_2 = torch.log(re_target2 / re_anchor2)
-        bbox_ground_truth_3 = torch.log(re_target3 / re_anchor3)
-        bbox_ground_truth = torch.stack((bbox_ground_truth_0,
-                                         bbox_ground_truth_1,
-                                         bbox_ground_truth_2,
-                                         bbox_ground_truth_3), dim=1)
-
-        useful_anchor_obj = torch.from_numpy(useful_anchor_obj).cuda()
-        useful_anchor_obj = useful_anchor_obj.detach()
-        rpn_bbox_pred_resh_slect = torch.index_select(rpn_bbox_pred_resh, 0, useful_anchor_obj)
-
-        sigma_2 = sigma ** 2
-        box_diff = rpn_bbox_pred_resh_slect - bbox_ground_truth
-        abs_box_diff = torch.abs(box_diff)
-        smoothL1_sign = (abs_box_diff < 1. / sigma_2).detach().float()
-        rpn_reg_loss = torch.pow(box_diff, 2) * (sigma_2 / 2.) * smoothL1_sign \
-                   + (abs_box_diff - (0.5 / sigma_2)) * (1. - smoothL1_sign)
-        for i in sorted([0, 1], reverse=True):
-            loss_box = loss_box.sum(i)
-        rpn_reg_loss = loss_box.mean()
-
-        return rpn_cls_loss, rpn_reg_loss
-
-
-if __name__ == '__main__':
-    # s1 = RPN()
-    # s1.build_loss(None,
-    #               None,
-    #               np.array([[0, 40, 20, 100], [40, 100, 160, 188]]),
-    #               400,
-    #               400,
-    #               cfg.anchor_strides[0]
-    #               )
-    data = np.array([1, 2, 3, 4])
-    data2 = np.array([1, 3, 5, 7])
-    data = torch.from_numpy(data).cuda()
-    data2 = torch.from_numpy(data2).cuda()
-    out = torch.stack((data, data2), dim=1)
-    print(out.size())
 
 
 
