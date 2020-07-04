@@ -12,11 +12,11 @@ opencv>=3.4.1
 
 # Future work
 
-1. support more backbones, such as resnext, senet and resnest
+1.support more backbones, such as resnext, senet and resnest
 
-2. support deformable convolution
+2.support deformable convolution
 
-3. mish activation function
+3.mish activation function
 
 ...
 
