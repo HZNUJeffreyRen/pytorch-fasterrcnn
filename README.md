@@ -17,6 +17,8 @@ opencv>=3.4.1
 
 3. mish activation function
 
+...
+
 
 
 
