@@ -1,5 +1,5 @@
 # pytorch-fasterrcnn
-This project is pytorch implemented with the pytorch.It retains the core and strives for simplicity.
+This project is pytorch implemented with the pytorch. It retains the core and strives for simplicity.
 
 
 # requirements
