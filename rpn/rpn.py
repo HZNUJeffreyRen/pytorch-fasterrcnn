@@ -3,17 +3,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from rpn.anchor_target_layer import _AnchorTargetLayer
+from rpn.proposal_layer import _ProposalLayer
+from utils.net_utils import _smooth_l1_loss
 import config as cfg
 
 class RPN(nn.Module):
-    def __init__(self, feat_stride, is_training):
+    def __init__(self, is_training):
         super(RPN, self).__init__()
 
         self.is_training = is_training
         self.anchor_scales = cfg.anchor_scales
         self.anchor_ratios = cfg.anchor_ratios
-        self.feat_stride = feat_stride
-        self.inchannels = cfg.rpn_inchannels
+        self.feat_stride = 16   #downsample 16
+        self.inchannels = 1024
         self.feat_channels = cfg.rpn_featurechannels
 
         # define the convrelu layers processing input feature map
@@ -26,7 +28,7 @@ class RPN(nn.Module):
         self.RPN_bbox_pred = nn.Conv2d(self.feat_channels, self.nc_bbox_out, 1, 1, 0)
 
         # define proposal layer
-        #self.RPN_proposal = _ProposalLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
+        self.RPN_proposal = _ProposalLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
 
         # define anchor target layer
         self.RPN_anchor_target = _AnchorTargetLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
@@ -62,12 +64,12 @@ class RPN(nn.Module):
         # get rpn offsets to the anchor boxes
         rpn_bbox_pred = self.RPN_bbox_pred(rpn_conv1)
 
-        #rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data,
-        #                         im_width, im_height, self.is_training))
+        rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data,
+                                im_width, im_height, self.is_training))
         self.rpn_loss_cls = 0
         self.rpn_loss_box = 0
 
-        if self.is_training:
+        if self.training:
             assert gt_boxes is not None
 
             rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_width, im_height))
@@ -89,28 +91,10 @@ class RPN(nn.Module):
             rpn_bbox_outside_weights = Variable(rpn_bbox_outside_weights)
             rpn_bbox_targets = Variable(rpn_bbox_targets)
 
-            self.rpn_loss_box = self._smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_inside_weights,
-                                                            rpn_bbox_outside_weights, sigma=3, dim=[1,2,3])
+            self.rpn_loss_box = _smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_inside_weights,\
+                                                rpn_bbox_outside_weights, sigma=3, dim=[1,2,3])
 
-        # return rois, self.rpn_loss_cls, self.rpn_loss_box
-        return self.rpn_loss_cls, self.rpn_loss_box
-
-
-    def _smooth_l1_loss(self, bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_weights, sigma=1.0, dim=[1]):
-        sigma_2 = sigma ** 2
-        box_diff = bbox_pred - bbox_targets
-        in_box_diff = bbox_inside_weights * box_diff
-        abs_in_box_diff = torch.abs(in_box_diff)
-        smoothL1_sign = (abs_in_box_diff < 1. / sigma_2).detach().float()
-        in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.) * smoothL1_sign \
-                      + (abs_in_box_diff - (0.5 / sigma_2)) * (1. - smoothL1_sign)
-        out_loss_box = bbox_outside_weights * in_loss_box
-        loss_box = out_loss_box
-        for i in sorted(dim, reverse=True):
-            loss_box = loss_box.sum(i)
-        loss_box = loss_box.mean()
-
-        return loss_box
+        return rois, self.rpn_loss_cls, self.rpn_loss_box
 
 
     def init_weights(self):

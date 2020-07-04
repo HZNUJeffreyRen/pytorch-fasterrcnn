@@ -66,7 +66,7 @@ def _scale_enum(anchor, scales):
 if __name__ == '__main__':
     import time
     t = time.time()
-    a = generate_anchors(16, ratios=np.array([0.5, 1, 2]), scales=np.array([8]))
+    a = generate_anchors(16, ratios=np.array([0.5, 1, 2]), scales=np.array([8, 16, 32]))
     print(time.time() - t)
     print(a)
 

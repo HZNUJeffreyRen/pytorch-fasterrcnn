@@ -5,6 +5,7 @@ import config as cfg
 from rpn.generate_anchors import generate_anchors
 from rpn.bbox_transform import bbox_overlaps_batch, bbox_transform_batch
 
+
 class _AnchorTargetLayer(nn.Module):
     def __init__(self, feat_stride, scales, ratios):
         super(_AnchorTargetLayer, self).__init__()
@@ -19,6 +20,7 @@ class _AnchorTargetLayer(nn.Module):
         self._allowed_border = 0  # allow boxes to sit over the edge by a small amount
 
     def forward(self, input):
+
         rpn_cls_score = input[0]
         gt_boxes = input[1]
         image_width = input[2]
@@ -58,6 +60,7 @@ class _AnchorTargetLayer(nn.Module):
         bbox_outside_weights = gt_boxes.new(batch_size, inds_inside.size(0)).zero_()
 
         overlaps = bbox_overlaps_batch(anchors, gt_boxes)
+        #print('anchor overlaps', overlaps)
 
         max_overlaps, argmax_overlaps = torch.max(overlaps, 2)   #每行的最大值和所在的坐标
         gt_max_overlaps, _ = torch.max(overlaps, 1)   #每列的最大值所在的坐标
@@ -77,7 +80,7 @@ class _AnchorTargetLayer(nn.Module):
         sum_bg = torch.sum((labels == 0).int(), 1)
 
         for i in range(batch_size):
-            # subsample positive labels if we have too many
+            # subsample positive labels if we have  too many
             if sum_fg[i] > num_fg:
                 fg_inds = torch.nonzero(labels[i] == 1).view(-1)
                 # torch.randperm seems has a bug on multi-gpu setting that cause the segfault.
@@ -108,7 +111,7 @@ class _AnchorTargetLayer(nn.Module):
         bbox_inside_weights[labels == 1] = cfg.rpn_bbox_inside_weight[0]  #计算回归损失时，乘以这个矩阵就可以屏蔽0和-1的anchor
 
         num_examples = torch.sum(labels[i] >= 0)
-        positive_weights = 1.0 / num_examples.item()  #除以均值，这个可能最后算损失的时候需要
+        positive_weights = 1.0 / num_examples.item()
         negative_weights = 1.0 / num_examples.item()
 
         bbox_outside_weights[labels == 1] = positive_weights
@@ -122,7 +125,7 @@ class _AnchorTargetLayer(nn.Module):
         outputs = []
 
         labels = labels.view(batch_size, feat_height, feat_width, A).permute(0, 3, 1, 2).contiguous()
-        labels = labels.view(batch_size, 1, A * feat_height, feat_width)
+        labels = labels.view(batch_size, 1, A * feat_height, feat_width)   #这里这样操作一下有什么意义吗
         outputs.append(labels)
 
         bbox_targets = bbox_targets.view(batch_size, feat_height, feat_width, A*4).permute(0,3,1,2).contiguous()
