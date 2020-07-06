@@ -1,5 +1,5 @@
 # pytorch-fasterrcnn
-This project is pytorch implemented with the pytorch.It retains the core and strives for simplicity.
+This project is pytorch implemented with the pytorch. It retains the core and strives for simplicity.
 
 
 # requirements
@@ -11,11 +11,16 @@ torchvision >=0.3.0
 opencv>=3.4.1
 
 # Future work
-1. support more backbones, such as resnext, senet and resnest
 
-2. support deformable convolution
+1.support coco dataset
 
-3. mish activation function
+2.support more backbones, such as resnext, senet and resnest
+
+3.support deformable convolution
+
+4.mish activation function
+
+...
 
 
 
