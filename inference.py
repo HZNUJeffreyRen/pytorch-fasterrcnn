@@ -4,11 +4,20 @@ import numpy as np
 import copy
 import cv2
 import time
+import random
 from net.resnet import resnet
 from rpn.bbox_transform import bbox_transform_inv, clip_boxes
 from torchvision.ops import nms
 
 ind_class = {v : k for k, v in cfg.class_to_ind.items()}
+
+class_colors = []
+for i in range(len(ind_class)):
+    b = random.randint(10, 255)
+    g = random.randint(10, 255)
+    r = random.randint(10, 255)
+    class_colors.append((b, g, r))
+
 
 @torch.no_grad()
 def inference(_test_img_path, _check_point, _score_threshold=0.3):
@@ -18,7 +27,7 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
 
     device = torch.device("cuda: 0" if torch.cuda.is_available() else "cpu")
 
-    fasterRCNN = resnet(cfg.backbone, pretrained=False, class_agnostic=True)
+    fasterRCNN = resnet(cfg.backbone, is_training=False, pretrained=False, class_agnostic=True)
     fasterRCNN.create_architecture()
 
     print("load checkpoint %s" % (check_point))
@@ -37,7 +46,7 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
     test_img = cv2.imread(test_img_path)
 
     test_img_copy = copy.deepcopy(test_img)
-    test_img_copy = image_preprocess(test_img_copy)
+    test_img_copy, scale = image_preprocess(test_img_copy)
     test_img_copy = torch.from_numpy(test_img_copy)
     im_data.resize_(test_img_copy.shape).copy_(test_img_copy)
 
@@ -52,9 +61,11 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
         box_deltas = box_deltas.view(1, -1, 4)
     pred_boxes = bbox_transform_inv(boxes, box_deltas, 1)
     pred_boxes = clip_boxes(pred_boxes, (im_data.size(2), im_data.size(3)), 1)
+    pred_boxes = pred_boxes / scale
 
     scores = scores.squeeze()
     pred_boxes = pred_boxes.squeeze()
+
 
     for j in range(1, len(cfg.class_to_ind)):
         inds = torch.nonzero(scores[:, j] > score_threshold).view(-1)
@@ -64,7 +75,7 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
             cls_boxes = pred_boxes[inds, :]
 
             cls_dets = cls_boxes[order]
-            cls_scores = cls_scores.squeeze()[order]
+            cls_scores = cls_scores[order]
 
             keep = nms(cls_dets, cls_scores, cfg.test_nms_threshold)
             cls_dets = cls_dets[keep.view(-1).long()]  #当前类别保留下来的目标框
@@ -79,25 +90,41 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
 
 
 def image_preprocess(im):
+
     im = im.astype(np.float)
     im -= cfg.pixel_means
+
+    im_shape = im.shape
+    im_size_min = np.min(im_shape[0:2])
+    im_size_max = np.max(im_shape[0:2])
+
+    im_scale = float(cfg.image_min_size) / float(im_size_min)
+    if np.round(im_scale * im_size_max) > cfg.image_max_size:
+        im_scale = float(cfg.image_max_size) / float(im_size_max)
+    im = cv2.resize(im, None, None, fx=im_scale, fy=im_scale, interpolation=cv2.INTER_LINEAR)
+
     im = im[np.newaxis, :, :, :]
     im = im.transpose(0, 3, 1, 2) #nchw
 
-    return im
+    return im, im_scale
 
 
 def draw_target(image, dets, scores, class_idx):
-    for det, score in zip(dets,scores):
-        image = cv2.rectangle(image, (det[0], det[1]), (det[2],det[3]), (0, 0, 255), 1)
+    for det, score in zip(dets, scores):
+        image = cv2.rectangle(image, (det[0], det[1]), (det[2],det[3]), class_colors[class_idx], 1)
         text = '{}  {:.2f}'.format(ind_class[class_idx], score)
-        image = cv2.putText(image, text, (det[0], det[1]-5), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 1)
+        image = cv2.putText(image,
+                            text,
+                            (det[0]+5, det[1]- 5),
+                            cv2.FONT_HERSHEY_COMPLEX,
+                            0.5,
+                            class_colors[class_idx], 1)
 
     return image
 
 
 if __name__ == '__main__':
-    test_img_path = './000497.jpg'
+    test_img_path = './009782.jpg'
     check_point = './work_dir/fasterrcnn_r101-19.pth'
-    score_threshold = 0.5
+    score_threshold = 0.3
     inference(test_img_path, check_point, score_threshold)

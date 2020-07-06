@@ -10,6 +10,7 @@ class_to_ind = {
 }
 
 trainset_root_path = 'G:/VOC2007/train/VOC2007/'
+testset_root_path = 'G:/VOC2007/test/VOC2007/'
 rng_seed = 3
 batch_size = 1  #目前只支持batch_size = 1!
 epoch = 20
@@ -63,6 +64,6 @@ pool_size = 7
 
 rcnn_feat_channels = 2048
 
-test_nms_threshold = 0.5
+test_nms_threshold = 0.3
 
 

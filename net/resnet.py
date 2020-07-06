@@ -268,6 +268,8 @@ class resnet(_fasterRCNN):
         for p in self.RCNN_base[0].parameters(): p.requires_grad=False
         for p in self.RCNN_base[1].parameters(): p.requires_grad=False
 
+        for p in self.RCNN_base[4].parameters(): p.requires_grad = False
+
         def set_bn_fix(m):
             classname = m.__class__.__name__
             if classname.find('BatchNorm') != -1:

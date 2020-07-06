@@ -106,7 +106,7 @@ class PASCAL_VOC(Dataset):
 
 
 if __name__ == '__main__':
-    train_set = PASCAL_VOC('G:/VOC_bigclass/voc', 'train')
+    train_set = PASCAL_VOC('G:/VOC2007/train/VOC2007/', 'trainval')
     dataloader = DataLoader(train_set, batch_size=1, shuffle=True, num_workers=4)
     print(len(train_set))
     for i, data in enumerate(dataloader):
