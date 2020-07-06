@@ -27,7 +27,7 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
 
     device = torch.device("cuda: 0" if torch.cuda.is_available() else "cpu")
 
-    fasterRCNN = resnet(cfg.backbone, is_training=False, pretrained=False, class_agnostic=True)
+    fasterRCNN = resnet(cfg.backbone, is_training=False, pretrained=False, class_agnostic=False)
     fasterRCNN.create_architecture()
 
     print("load checkpoint %s" % (check_point))

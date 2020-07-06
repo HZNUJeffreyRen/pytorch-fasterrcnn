@@ -20,7 +20,7 @@ def train():
 
     device = torch.device("cuda: 0" if torch.cuda.is_available() else "cpu")
 
-    fasterRCNN = resnet(cfg.backbone, pretrained=True, class_agnostic=True)
+    fasterRCNN = resnet(cfg.backbone, pretrained=True, class_agnostic=False)
     fasterRCNN.create_architecture()
 
     optimizer = torch.optim.SGD(fasterRCNN.parameters(), lr=cfg.learning_rate, momentum=0.9, weight_decay=5e-4)
