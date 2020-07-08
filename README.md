@@ -35,7 +35,7 @@ tqdm
 ## evalue
 1.in config.py, modify your categories and testset path (only support VOC dataset)
 
-2.run test.py
+2.run evalue.py
 
 ## inference
 
