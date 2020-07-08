@@ -10,6 +10,8 @@ torchvision >=0.3.0
 
 opencv>=3.4.1
 
+tqdm
+
 # Future work
 
 1.support coco dataset
