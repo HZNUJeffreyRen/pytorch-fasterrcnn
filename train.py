@@ -28,13 +28,16 @@ def train():
     fasterRCNN.to(device)
 
     im_data = torch.FloatTensor(1)
+    im_info = torch.FloatTensor(1)
     gt_boxes = torch.FloatTensor(1)
 
     im_data = im_data.cuda()
+    im_info = im_info.cuda()
     gt_boxes = gt_boxes.cuda()
 
     # make variable
     im_data = Variable(im_data)
+    im_info = Variable(im_info)
     gt_boxes = Variable(gt_boxes)
 
     start_epoch = 0
@@ -58,13 +61,14 @@ def train():
             with torch.no_grad():
                 im_data.resize_(batch_data['image'].size()).copy_(batch_data['image'])
                 gt_boxes.resize_(batch_data['gt_boxes'].size()).copy_(batch_data['gt_boxes'])
+                im_info.resize_(batch_data['im_info'].size()).copy_(batch_data['im_info'])
 
             fasterRCNN.zero_grad()
             print('[epoch:{}/{}], [step {}/{}]'.format(ep + 1, cfg.epoch, step + 1, iters_per_epoch))
 
             rois, cls_prob, bbox_pred, rpn_loss_cls, rpn_loss_bbox, \
                     RCNN_loss_cls, RCNN_loss_bbox, \
-                    roi_labels = fasterRCNN(im_data, gt_boxes)
+                    roi_labels = fasterRCNN(im_data, gt_boxes, im_info)
 
             loss = rpn_loss_cls.mean() + rpn_loss_bbox.mean() + RCNN_loss_cls.mean() + RCNN_loss_bbox.mean()
             optimizer.zero_grad()

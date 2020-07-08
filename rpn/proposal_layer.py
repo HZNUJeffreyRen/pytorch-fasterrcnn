@@ -22,9 +22,8 @@ class _ProposalLayer(nn.Module):
         # 前_num_anchors个是框属于背景的概率，后_num_anchors个才是属于前景的概率
         scores = input[0][:, self._num_anchors:, :, :]
         bbox_deltas = input[1]
-        image_width = input[2]
-        image_height = input[3]
-        is_training = input[4]
+        im_info = input[2]
+        is_training = input[3]
 
         if is_training:
             pre_nms_topN = cfg.train_rpn_pre_nms_top_N
@@ -59,7 +58,8 @@ class _ProposalLayer(nn.Module):
         scores = scores.view(batch_size, -1)
         proposals = bbox_transform_inv(anchors, bbox_deltas, batch_size)
 
-        proposals = clip_boxes(proposals, (image_height, image_width), batch_size)  #将超出范围的候选框给夹紧使其不超过图像范围
+        print(im_info)
+        proposals = clip_boxes(proposals, im_info, batch_size)  #将超出范围的候选框给夹紧使其不超过图像范围
 
         scores_keep = scores
         proposals_keep = proposals

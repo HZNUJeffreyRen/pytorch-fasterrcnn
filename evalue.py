@@ -12,7 +12,7 @@ from torchvision.ops import nms
 import xml.etree.ElementTree as ET
 
 @torch.no_grad()
-def evalue(check_point, cache_path='./result.pkl', ovthresh=0.5, use_07_metric=False):
+def evalue(check_point, cache_path='./result.pkl', class_agnostic=False, ovthresh=0.5, use_07_metric=False):
 
     ind_class = {v: k for k, v in cfg.class_to_ind.items()}
     class_result_dic = {k: [] for k in cfg.class_to_ind.keys()}  # store every class result
@@ -26,7 +26,7 @@ def evalue(check_point, cache_path='./result.pkl', ovthresh=0.5, use_07_metric=F
 
         device = torch.device("cuda: 0" if torch.cuda.is_available() else "cpu")
 
-        fasterRCNN = resnet(cfg.backbone, is_training=False, pretrained=False, class_agnostic=True)
+        fasterRCNN = resnet(cfg.backbone, is_training=False, pretrained=False, class_agnostic=class_agnostic)
         fasterRCNN.create_architecture()
 
         print("load checkpoint %s" % (check_point))
@@ -40,8 +40,10 @@ def evalue(check_point, cache_path='./result.pkl', ovthresh=0.5, use_07_metric=F
         fasterRCNN.to(device)
 
         im_data = torch.FloatTensor(1)
+        im_info = torch.FloatTensor(1)
         gt_boxes = torch.FloatTensor(1)
         im_data = im_data.cuda()
+        im_info = im_info.cuda()
         gt_boxes = gt_boxes.cuda()
 
         #detect for result
@@ -50,6 +52,7 @@ def evalue(check_point, cache_path='./result.pkl', ovthresh=0.5, use_07_metric=F
             with torch.no_grad():
                 im_data.resize_(batch_data['image'].size()).copy_(batch_data['image'])
                 gt_boxes.resize_(batch_data['gt_boxes'].size()).copy_(batch_data['gt_boxes'])
+                im_info.resize_(batch_data['im_info'].size()).copy_(batch_data['im_info'])
 
                 image_name = os.path.basename(batch_data['imname'][0]).split('.')[0]
                 imagenames.append(image_name)
@@ -67,7 +70,7 @@ def evalue(check_point, cache_path='./result.pkl', ovthresh=0.5, use_07_metric=F
                     box_deltas = box_deltas.view(1, -1, 4)
 
                 pred_boxes = bbox_transform_inv(boxes, box_deltas, 1)
-                pred_boxes = clip_boxes(pred_boxes, (im_data.size(2), im_data.size(3)), 1)
+                pred_boxes = clip_boxes(pred_boxes, im_info, 1)
                 pred_boxes = pred_boxes / batch_data['im_info'][0, 2]
 
                 scores = scores.squeeze()
@@ -78,27 +81,25 @@ def evalue(check_point, cache_path='./result.pkl', ovthresh=0.5, use_07_metric=F
                     if inds.numel() > 0:
                         cls_scores = scores[:, j][inds]
                         _, order = torch.sort(cls_scores, 0, True)
-                        cls_boxes = pred_boxes[inds, :]
 
-                        cls_dets = cls_boxes[order]
+                        if class_agnostic:
+                            cls_boxes = pred_boxes[inds, :]
+                        else:
+                            cls_boxes = pred_boxes[inds][:, j * 4:(j + 1) * 4]
+
+                        cls_dets = pred_boxes[order]
                         cls_scores = cls_scores[order]
 
-                    cls_scores = scores[:, j]
-                    _, order = torch.sort(cls_scores, 0, True)
+                        keep = nms(cls_dets, cls_scores, cfg.test_nms_threshold)
+                        cls_dets = cls_dets[keep.view(-1).long()]  # 当前类别保留下来的目标框
+                        cls_scores = cls_scores[keep.view(-1).long()]
 
-                    cls_dets = pred_boxes[order]
-                    cls_scores = cls_scores[order]
-
-                    keep = nms(cls_dets, cls_scores, cfg.test_nms_threshold)
-                    cls_dets = cls_dets[keep.view(-1).long()]  # 当前类别保留下来的目标框
-                    cls_scores = cls_scores[keep.view(-1).long()]
-
-                    for score, bbox in zip(cls_scores, cls_dets):
-                        class_result_dic[ind_class[j]].append({
-                                'image_name': image_name,
-                                'score': score,
-                                'bbox': [bbox[0], bbox[1], bbox[2], bbox[3]]
-                            })
+                        for score, bbox in zip(cls_scores, cls_dets):
+                            class_result_dic[ind_class[j]].append({
+                                    'image_name': image_name,
+                                    'score': score,
+                                    'bbox': [bbox[0], bbox[1], bbox[2], bbox[3]]
+                                })
 
         print('writting result cache ......')
         with open(cache_path, 'wb') as fp:

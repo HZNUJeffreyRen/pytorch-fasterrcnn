@@ -49,7 +49,7 @@ class RPN(nn.Module):
         return x
 
 
-    def forward(self, base_feat, im_width, im_height, gt_boxes):
+    def forward(self, base_feat, im_info, gt_boxes):
         batch_size = base_feat.size(0)
 
         # return feature map after convrelu layer
@@ -65,14 +65,14 @@ class RPN(nn.Module):
         rpn_bbox_pred = self.RPN_bbox_pred(rpn_conv1)
 
         rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data,
-                                im_width, im_height, self.is_training))
+                                im_info, self.is_training))
         self.rpn_loss_cls = 0
         self.rpn_loss_box = 0
 
         if self.training:
             assert gt_boxes is not None
 
-            rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_width, im_height))
+            rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_info))
 
             # compute classification loss
             rpn_cls_score = rpn_cls_score_reshape.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2)

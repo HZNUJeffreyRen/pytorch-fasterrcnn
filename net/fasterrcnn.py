@@ -27,11 +27,10 @@ class _fasterRCNN(nn.Module):
         self.RCNN_proposal_target = ProposalTargetLayer(self.n_classes)
 
 
-    def forward(self, im_data, gt_boxes):
+    def forward(self, im_data, gt_boxes, im_info):
         batch_size = im_data.size(0)
+        im_info = im_info.data
 
-        image_width = im_data.size(3)
-        image_height = im_data.size(2)
 
         if not gt_boxes is None:
             gt_boxes = gt_boxes.data
@@ -40,7 +39,7 @@ class _fasterRCNN(nn.Module):
         base_feat = self.RCNN_base(im_data)
 
         # feed base feature map to RPN to obtain rois
-        rois, rpn_loss_cls, rpn_loss_bbox = self.RCNN_rpn(base_feat, image_width, image_height, gt_boxes)
+        rois, rpn_loss_cls, rpn_loss_bbox = self.RCNN_rpn(base_feat, im_info, gt_boxes)
 
         # if it is training phase, then use ground truth bboxes for refining
         if self.training:

@@ -23,8 +23,7 @@ class _AnchorTargetLayer(nn.Module):
 
         rpn_cls_score = input[0]
         gt_boxes = input[1]
-        image_width = input[2]
-        image_height = input[3]
+        im_info = input[2]
 
         feat_height, feat_width = rpn_cls_score.size(2), rpn_cls_score.size(3)
         batch_size = gt_boxes.size(0)
@@ -48,8 +47,8 @@ class _AnchorTargetLayer(nn.Module):
 
         keep = ((all_anchors[:, 0] >= -self._allowed_border) &
                 (all_anchors[:, 1] >= -self._allowed_border) &
-                (all_anchors[:, 2] < image_width + self._allowed_border) &
-                (all_anchors[:, 3] < image_height + self._allowed_border))   #计算没有超出边界的锚点框，keep为mask，只有0,1，1的位符合要求的位置
+                (all_anchors[:, 2] < int(im_info[0][1]) + self._allowed_border) &
+                (all_anchors[:, 3] < int(im_info[0][0]) + self._allowed_border))   #计算没有超出边界的锚点框，keep为mask，只有0,1，1的位符合要求的位置
         inds_inside = torch.nonzero(keep).view(-1)  #返回非零元素的索引
 
         anchors = all_anchors[inds_inside, :]

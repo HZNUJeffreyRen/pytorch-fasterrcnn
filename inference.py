@@ -20,14 +20,14 @@ for i in range(len(ind_class)):
 
 
 @torch.no_grad()
-def inference(_test_img_path, _check_point, _score_threshold=0.3):
+def inference(_test_img_path, _check_point, _score_threshold=0.3, class_agnostic=False):
     test_img_path = _test_img_path
     check_point = _check_point
     score_threshold = _score_threshold
 
     device = torch.device("cuda: 0" if torch.cuda.is_available() else "cpu")
 
-    fasterRCNN = resnet(cfg.backbone, is_training=False, pretrained=False, class_agnostic=False)
+    fasterRCNN = resnet(cfg.backbone, is_training=False, pretrained=False, class_agnostic=class_agnostic)
     fasterRCNN.create_architecture()
 
     print("load checkpoint %s" % (check_point))
@@ -39,7 +39,9 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
     fasterRCNN.to(device)
 
     im_data = torch.FloatTensor(1)
+    im_info = torch.FloatTensor(1)
     im_data = im_data.cuda()
+    im_info = im_data.cuda()
 
     start_time = time.time()
 
@@ -48,7 +50,10 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
     test_img_copy = copy.deepcopy(test_img)
     test_img_copy, scale = image_preprocess(test_img_copy)
     test_img_copy = torch.from_numpy(test_img_copy)
+    im_info_tensor = torch.Tensor([[[test_img_copy.size(2), test_img_copy.size(3)]]])
+
     im_data.resize_(test_img_copy.shape).copy_(test_img_copy)
+    im_info.resize_(im_info_tensor.shape).copy_(im_info_tensor)
 
     rois, cls_prob, bbox_pred, _, _, _, _, _ = fasterRCNN(im_data, None)  #without gt
     scores = cls_prob.data
@@ -56,9 +61,15 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
 
     box_deltas = bbox_pred.data
     if cfg.bbox_normalize_targets_precomputed:
-        box_deltas = box_deltas.view(-1, 4) * torch.FloatTensor(cfg.bbox_normalize_std).cuda() \
-                     + torch.FloatTensor(cfg.bbox_normalize_means).cuda()
-        box_deltas = box_deltas.view(1, -1, 4)
+        if class_agnostic:
+            box_deltas = box_deltas.view(-1, 4) * torch.FloatTensor(cfg.bbox_normalize_std).cuda() \
+                         + torch.FloatTensor(cfg.bbox_normalize_means).cuda()
+            box_deltas = box_deltas.view(1, -1, 4)
+        else:
+            box_deltas = box_deltas.view(-1, 4) * torch.FloatTensor(cfg.bbox_normalize_std).cuda() \
+                         + torch.FloatTensor(cfg.bbox_normalize_means).cuda()
+            print(box_deltas.size())
+            box_deltas = box_deltas.view(1, -1, 4 * len(cfg.class_to_ind))
     pred_boxes = bbox_transform_inv(boxes, box_deltas, 1)
     pred_boxes = clip_boxes(pred_boxes, (im_data.size(2), im_data.size(3)), 1)
     pred_boxes = pred_boxes / scale
@@ -72,7 +83,11 @@ def inference(_test_img_path, _check_point, _score_threshold=0.3):
         if inds.numel() > 0:
             cls_scores = scores[:, j][inds]
             _, order = torch.sort(cls_scores, 0, True)
-            cls_boxes = pred_boxes[inds, :]
+
+            if class_agnostic:
+                cls_boxes = pred_boxes[inds, :]
+            else:
+                cls_boxes = pred_boxes[inds][:, j * 4:(j + 1) * 4]
 
             cls_dets = cls_boxes[order]
             cls_scores = cls_scores[order]

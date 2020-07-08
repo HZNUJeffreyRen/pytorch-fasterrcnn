@@ -234,8 +234,6 @@ backbone_dic = {
 
 class resnet(_fasterRCNN):
     def __init__(self, backbone, is_training=True, pretrained=False, class_agnostic=False):
-        self.model_path = 'data/pretrained_model/resnet101_caffe.pth'
-        self.dout_base_model = 1024
         self.backbone=backbone
         self.pretrained = pretrained
         self.class_agnostic = class_agnostic
