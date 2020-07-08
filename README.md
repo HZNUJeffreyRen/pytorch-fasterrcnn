@@ -1,7 +1,7 @@
 # pytorch-fasterrcnn
 This project is fasterrcnn implemented with the pytorch. It retains the core and strives for simplicity.
 
-It supports windows and Linux systems.\<br>
+It supports windows and Linux systems.
 
 
 ## requirements
