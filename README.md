@@ -1,8 +1,10 @@
 # pytorch-fasterrcnn
 This project is pytorch implemented with the pytorch. It retains the core and strives for simplicity.
 
+It supports windows and Linux systems.\<br>
 
-# requirements
+
+## requirements
 
 pytorch >= 1.1.0
 
@@ -12,7 +14,7 @@ opencv>=3.4.1
 
 tqdm
 
-# Future work
+## Future work
 
 1.support coco dataset
 
@@ -24,6 +26,20 @@ tqdm
 
 ...
 
+## train
+
+1.in config.py, modify your categories and trainset path (only support VOC dataset)
+
+2.run train.py
+
+## evalue
+1.in config.py, modify your categories and testset path (only support VOC dataset)
+
+2.run test.py
+
+## inference
+
+run inference.py
 
 
 
