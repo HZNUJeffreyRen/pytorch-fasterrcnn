@@ -41,5 +41,10 @@ tqdm
 
 run inference.py
 
+## Contact me
+
+
+If you have any questions, you can email me(hznuhisejeffrey@126.com) and I will be happy to communicate with you.
+
 
 
